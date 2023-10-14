@@ -1,67 +1,111 @@
+# Python program to implement server side of chat room.
 import socket
-import threading
+import select
+import sys
+'''Replace "thread" with "_thread" for python 3'''
+from _thread import *
 
-#Variables for holding information about connections
-connections = []
-total_connections = 0
+"""The first argument AF_INET is the address domain of the
+socket. This is used when we have an Internet Domain with
+any two hosts The second argument is the type of socket.
+SOCK_STREAM means that data or characters are read in
+a continuous flow."""
+server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
-#Client class, new instance created for each connected client
-#Each instance has the socket and address that is associated with items
-#Along with an assigned ID and a name chosen by the client
-class Client(threading.Thread):
-    def __init__(self, socket, address, id, name, signal):
-        threading.Thread.__init__(self)
-        self.socket = socket
-        self.address = address
-        self.id = id
-        self.name = name
-        self.signal = signal
-    
-    def __str__(self):
-        return str(self.id) + " " + str(self.address)
-    
-    #Attempt to get data from client
-    #If unable to, assume client has disconnected and remove him from server data
-    #If able to and we get data back, print it in the server and send it back to every
-    #client aside from the client that has sent it
-    #.decode is used to convert the byte data into a printable string
-    def run(self):
-        while self.signal:
-            try:
-                data = self.socket.recv(32)
-            except:
-                print("Client " + str(self.address) + " has disconnected")
-                self.signal = False
-                connections.remove(self)
-                break
-            if data != "":
-                print("ID " + str(self.id) + ": " + str(data.decode("utf-8")))
-                for client in connections:
-                    if client.id != self.id:
-                        client.socket.sendall(data)
+# checks whether sufficient arguments have been provided
+# if len(sys.argv) != 3:
+#     print ("Correct usage: script, IP address, port number")
+#     exit()
 
-#Wait for new connections
-def newConnections(socket):
+# takes the first argument from command prompt as IP address
+IP_address = "192.168.4.27"
+
+# takes second argument from command prompt as port number
+Port = 6548
+
+"""
+binds the server to an entered IP address and at the
+specified port number.
+The client must be aware of these parameters
+"""
+server.bind((IP_address, Port))
+
+"""
+listens for 100 active connections. This number can be
+increased as per convenience.
+"""
+server.listen(100)
+
+list_of_clients = []
+
+def clientthread(conn, addr):
+
+    # sends a message to the client whose user object is conn
+    conn.send("Welcome to this chatroom!".encode())
+
     while True:
-        sock, address = socket.accept()
-        global total_connections
-        connections.append(Client(sock, address, total_connections, "Name", True))
-        connections[len(connections) - 1].start()
-        print("New connection at ID " + str(connections[len(connections) - 1]))
-        total_connections += 1
+            try:
+                message = conn.recv(2048)
+                message = str(message.decode())
+                if message:
 
-def main():
-    #Get host and port
-    host = input("Host: ")
-    port = int(input("Port: "))
+                    """prints the message and address of the
+                    user who just sent the message on the server
+                    terminal"""
+                    print ("<" + addr[0] + "> " + message)
 
-    #Create new server socket
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.bind((host, port))
-    sock.listen(5)
+                    # Calls broadcast function to send message to all
+                    message_to_send = "<" + addr[0] + "> " + message
+                    broadcast(message_to_send, conn)
 
-    #Create new thread to wait for connections
-    newConnectionsThread = threading.Thread(target = newConnections, args = (sock,))
-    newConnectionsThread.start()
-    
-main()
+                else:
+                    """message may have no content if the connection
+                    is broken, in this case we remove the connection"""
+                    remove(conn)
+
+            except:
+                continue
+
+"""Using the below function, we broadcast the message to all
+clients who's object is not the same as the one sending
+the message """
+def broadcast(message, connection):
+    for clients in list_of_clients:
+        if clients!=connection:
+            try:
+                clients.send(message)
+            except:
+                clients.close()
+
+                # if the link is broken, we remove the client
+                remove(clients)
+
+"""The following function simply removes the object
+from the list that was created at the beginning of
+the program"""
+def remove(connection):
+    if connection in list_of_clients:
+        list_of_clients.remove(connection)
+
+while True:
+
+    """Accepts a connection request and stores two parameters,
+    conn which is a socket object for that user, and addr
+    which contains the IP address of the client that just
+    connected"""
+    conn, addr = server.accept()
+
+    """Maintains a list of clients for ease of broadcasting
+    a message to all available people in the chatroom"""
+    list_of_clients.append(conn)
+
+    # prints the address of the user that just connected
+    print (addr[0] + " connected")
+
+    # creates and individual thread for every user
+    # that connects
+    start_new_thread(clientthread,(conn,addr))
+
+conn.close()
+server.close()
